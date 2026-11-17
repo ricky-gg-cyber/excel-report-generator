@@ -2,6 +2,7 @@ import csv
 import sys
 import argparse
 import openpyxl
+from openpyxl.styles import Font
 
 def xlxs_writing_loop(dictionary:dict,sheet,interested_column):
     row_count=1
@@ -50,15 +51,15 @@ wb=openpyxl.Workbook()
 sheet1=wb.active
 sheet1.title='Data'
 sheet2=wb.create_sheet(title='Recap')
-sheet1.cell(row=1,column=1).value='Products'
-sheet1.cell(row=1,column=2).value='Products quantity'
-sheet1.cell(row=1,column=4).value='Categories'
-sheet1.cell(row=1,column=5).value='Categories quantity'
+sheet1.cell(row=1,column=1,value='Products').font=Font(bold=True)
+sheet1.cell(row=1,column=2,value='Products quantity').font=Font(bold=True)
+sheet1.cell(row=1,column=4,value='Categories').font=Font(bold=True)
+sheet1.cell(row=1,column=5,value='Categories quantity').font=Font(bold=True)
 xlxs_writing_loop(products_dict,sheet1,1)
 xlxs_writing_loop(categories_dict,sheet1,4)
 last_row=sheet1.max_row
-sheet1.cell(row=last_row+1, column=1).value='Total'
-total_quantity_cell=sheet1.cell(row=last_row+2, column=1)
+sheet1.cell(row=last_row+1,column=1,value='Total').font=Font(bold=True)
+total_quantity_cell=sheet1.cell(row=last_row+2, column=2)
 total_quantity_cell.number_format='0.00'
 total_quantity_cell.value=total
 wb.save(args.output_xlsx)
