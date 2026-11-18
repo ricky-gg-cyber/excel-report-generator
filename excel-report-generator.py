@@ -3,6 +3,7 @@ import sys
 import argparse
 import openpyxl
 from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 
 def xlxs_writing_loop(dictionary:dict,sheet,interested_column):
     row_count=1
@@ -35,6 +36,7 @@ except FileNotFoundError:
 total=0
 products_dict=dict()
 categories_dict=dict()
+
 wb=openpyxl.Workbook()
 sheet1=wb.active
 sheet1.title='Data'
@@ -48,7 +50,17 @@ try:
         if None in i:
             print(f"Error on line {row_number}: too many columns")
             sys.exit(1)
-        csv_to_xlxs(sheet1,i.values(),row_number,False)
+
+        row_values=list()
+        for key,val in i.items():
+            if key=='quantity':
+                row_values.append(int(val))
+            elif key=='unit_price':
+                row_values.append(float(val.replace(',','.')))
+            else:
+                row_values.append(val)
+        csv_to_xlxs(sheet1,row_values,row_number,False)
+
         products_dict.setdefault(i['product'],0)
         categories_dict.setdefault(i['category'],0)
         raw_total=int(i['quantity'])*float(i['unit_price'].replace(',','.'))
@@ -73,4 +85,16 @@ sheet2.cell(row=last_row+2,column=1,value='Total').font=Font(bold=True)
 total_quantity_cell=sheet2.cell(row=last_row+2, column=2)
 total_quantity_cell.number_format='0.00'
 total_quantity_cell.value=total
+
+for sheet in wb.worksheets:
+    for col in sheet.columns:
+        max_length = 0
+        column_letter = get_column_letter(col[0].column)
+        for cell in col:
+            try:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+            except:
+                pass
+        sheet.column_dimensions[column_letter].width = max(max_length + 3, 10)
 wb.save(args.output_xlsx)
