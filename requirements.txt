@@ -1,1 +1,1 @@
-openpyxl, Font from openpyxl.styles
+openpyxl>=3.1

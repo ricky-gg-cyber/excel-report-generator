@@ -5,96 +5,123 @@ import openpyxl
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-def xlxs_writing_loop(dictionary:dict,sheet,interested_column):
-    row_count=1
-    for categories,quantity in dictionary.items():
-        row_count+=1
-        sheet.cell(row=row_count,column=interested_column).value=categories
-        categories_quantity_cell=sheet.cell(row=row_count,column=interested_column+1)
-        categories_quantity_cell.number_format='0.00'
-        categories_quantity_cell.value=quantity
-
-def csv_to_xlxs(sheet,intestations:list,row_count,bold_t):
-    count=0
-    for i in intestations:
-        count+=1
-        sheet.cell(row=row_count,column=count,value=i).font=Font(bold=bold_t)
+REQUIRED_COLUMNS = {'product', 'category', 'quantity', 'unit_price'}
 
 
-try:
-    parser=argparse.ArgumentParser()
-    parser.add_argument('file_csv',help='The csv file to analyze')
+def read_csv(path):
+    try:
+        with open(path, newline='', encoding='utf-8-sig') as csvfile:
+            reader = csv.DictReader(csvfile)
+            rows = list(reader)
+            return reader.fieldnames or [], rows
+    except FileNotFoundError:
+        print('Error: file not found')
+        sys.exit(1)
+    except OSError as error:
+        print(f'Error: cannot read the file ({error.strerror})')
+        sys.exit(1)
+
+
+def write_row(sheet, values, row, bold=False):
+    for column, value in enumerate(values, start=1):
+        sheet.cell(row=row, column=column, value=value).font = Font(bold=bold)
+
+
+def write_totals(sheet, totals, column, title):
+    sheet.cell(row=1, column=column, value=title).font = Font(bold=True)
+    sheet.cell(row=1, column=column + 1, value='Total Sales').font = Font(bold=True)
+    for row, (name, amount) in enumerate(totals.items(), start=2):
+        sheet.cell(row=row, column=column, value=name)
+        cell = sheet.cell(row=row, column=column + 1, value=round(amount, 2))
+        cell.number_format = '0.00'
+
+
+def adjust_column_widths(workbook):
+    for sheet in workbook.worksheets:
+        for column in sheet.columns:
+            longest = max((len(str(cell.value)) for cell in column
+                           if cell.value is not None), default=0)
+            letter = get_column_letter(column[0].column)
+            sheet.column_dimensions[letter].width = max(longest + 3, 10)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Create an Excel report from a CSV file of sales.')
+    parser.add_argument('file_csv', help='The csv file to analyze')
     parser.add_argument('output_xlsx', help='The xlsx output file')
-    args=parser.parse_args()
-    filename=args.file_csv
-    with open(filename,newline='',encoding='utf-8-sig') as csvfile:
-        reader=csv.DictReader(csvfile)
-        data=list(reader)
-except FileNotFoundError:
-    print('Error,file not found')
-    sys.exit(1)
-total=0
-products_dict=dict()
-categories_dict=dict()
+    args = parser.parse_args()
 
-wb=openpyxl.Workbook()
-sheet1=wb.active
-sheet1.title='Data'
-sheet2=wb.create_sheet(title='Recap')
-row_number=1
-try:
-    for i in data:
-        if row_number==1:
-            csv_to_xlxs(sheet1,i,row_number,True)
-        row_number+=1
-        if None in i:
-            print(f"Error on line {row_number}: too many columns")
+    fieldnames, data = read_csv(args.file_csv)
+    missing = REQUIRED_COLUMNS - set(fieldnames)
+    if missing:
+        print(f"Error: missing columns: {', '.join(sorted(missing))}")
+        sys.exit(1)
+    if not data:
+        print('Error: no data rows found in the file')
+        sys.exit(1)
+
+    wb = openpyxl.Workbook()
+    sheet1 = wb.active
+    sheet1.title = 'Data'
+    sheet2 = wb.create_sheet(title='Recap')
+    write_row(sheet1, fieldnames, 1, bold=True)
+    price_column = fieldnames.index('unit_price') + 1
+
+    total = 0
+    products_dict = dict()
+    categories_dict = dict()
+    row_number = 1
+    for row in data:
+        row_number += 1
+        if None in row:
+            print(f'Error on line {row_number}: too many columns')
+            sys.exit(1)
+        if None in row.values():
+            print(f'Error on line {row_number}: missing values')
+            sys.exit(1)
+        try:
+            quantity = int(row['quantity'])
+            price = float(row['unit_price'].replace(',', '.'))
+        except ValueError:
+            print(f'Error on line {row_number}: invalid quantity or price')
             sys.exit(1)
 
-        row_values=list()
-        for key,val in i.items():
-            if key=='quantity':
-                row_values.append(int(val))
-            elif key=='unit_price':
-                row_values.append(float(val.replace(',','.')))
+        row_values = []
+        for name in fieldnames:
+            if name == 'quantity':
+                row_values.append(quantity)
+            elif name == 'unit_price':
+                row_values.append(price)
             else:
-                row_values.append(val)
-        csv_to_xlxs(sheet1,row_values,row_number,False)
+                row_values.append(row[name])
+        write_row(sheet1, row_values, row_number)
+        sheet1.cell(row=row_number, column=price_column).number_format = '0.00'
 
-        products_dict.setdefault(i['product'],0)
-        categories_dict.setdefault(i['category'],0)
-        raw_total=int(i['quantity'])*float(i['unit_price'].replace(',','.'))
-        products_dict[i['product']]+=raw_total
-        categories_dict[i['category']]+=raw_total
-        total+=raw_total
-except KeyError:
-    print('One column is missing from the expected input')
-    sys.exit(1)
-except ValueError:
-    print(f'invalid quantity or price found at row: {row_number}')
-    sys.exit(1)
+        products_dict.setdefault(row['product'], 0)
+        categories_dict.setdefault(row['category'], 0)
+        row_total = quantity * price
+        products_dict[row['product']] += row_total
+        categories_dict[row['category']] += row_total
+        total += row_total
 
-sheet2.cell(row=1,column=1,value='Products').font=Font(bold=True)
-sheet2.cell(row=1,column=2,value='Total Sales').font=Font(bold=True)
-sheet2.cell(row=1,column=4,value='Categories').font=Font(bold=True)
-sheet2.cell(row=1,column=5,value='Total Sales').font=Font(bold=True)
-xlxs_writing_loop(products_dict,sheet2,1)
-xlxs_writing_loop(categories_dict,sheet2,4)
-last_row=sheet2.max_row
-sheet2.cell(row=last_row+2,column=1,value='Total').font=Font(bold=True)
-total_quantity_cell=sheet2.cell(row=last_row+2, column=2)
-total_quantity_cell.number_format='0.00'
-total_quantity_cell.value=total
+    write_totals(sheet2, products_dict, 1, 'Products')
+    write_totals(sheet2, categories_dict, 4, 'Categories')
+    total_row = sheet2.max_row + 2
+    sheet2.cell(row=total_row, column=1, value='Total').font = Font(bold=True)
+    total_cell = sheet2.cell(row=total_row, column=2, value=round(total, 2))
+    total_cell.number_format = '0.00'
+    total_cell.font = Font(bold=True)
 
-for sheet in wb.worksheets:
-    for col in sheet.columns:
-        max_length = 0
-        column_letter = get_column_letter(col[0].column)
-        for cell in col:
-            try:
-                if cell.value:
-                    max_length = max(max_length, len(str(cell.value)))
-            except:
-                pass
-        sheet.column_dimensions[column_letter].width = max(max_length + 3, 10)
-wb.save(args.output_xlsx)
+    adjust_column_widths(wb)
+    try:
+        wb.save(args.output_xlsx)
+    except (FileNotFoundError, PermissionError):
+        print('Error: cannot save the file. Check that the folder exists '
+              'and that the file is not open in another program.')
+        sys.exit(1)
+    print(f'Report saved to {args.output_xlsx}')
+
+
+if __name__ == '__main__':
+    main()
